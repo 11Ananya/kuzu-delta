@@ -109,6 +109,7 @@ enum class CompressionType : uint8_t {
     BOOLEAN_BITPACKING = 2,
     CONSTANT = 3,
     ALP = 4,
+    DELTA = 5
 };
 
 struct ExtraMetadata {

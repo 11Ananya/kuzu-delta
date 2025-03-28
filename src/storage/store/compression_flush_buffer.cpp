@@ -13,7 +13,7 @@ ColumnChunkMetadata uncompressedFlushBuffer(std::span<const uint8_t> buffer, Fil
     dataFH->writePagesToFile(buffer.data(), buffer.size(), startPageIdx);
     return ColumnChunkMetadata(startPageIdx, metadata.numPages, metadata.numValues,
         metadata.compMeta);
-}
+
 
 ColumnChunkMetadata CompressedFlushBuffer::operator()(std::span<const uint8_t> buffer,
     FileHandle* dataFH, common::page_idx_t startPageIdx,

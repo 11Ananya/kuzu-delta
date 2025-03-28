@@ -8,12 +8,16 @@
 #include "storage/storage_utils.h"
 #include "storage/store/column.h"
 #include "transaction/transaction.h"
+#include "storage/compression/delta_compression.h"
+#include "storage/store/column_chunk_data.h"
 
 using namespace kuzu::common;
 using namespace kuzu::transaction;
 
 namespace kuzu {
 namespace storage {
+
+static DeltaCompression<int64_t> deltaInt64;
 
 ColumnChunk::ColumnChunk(MemoryManager& memoryManager, const LogicalType& dataType,
     uint64_t capacity, bool enableCompression, ResidencyState residencyState, bool initializeToZero)
@@ -37,9 +41,9 @@ void ColumnChunk::initializeScanState(ChunkState& state, const Column* column) c
     data->initializeScanState(state, column);
 }
 
+
 void ColumnChunk::scan(const Transaction* transaction, const ChunkState& state, ValueVector& output,
     offset_t offsetInChunk, length_t length) const {
-    // Check if there is deletions or insertions. If so, update selVector based on transaction.
     switch (getResidencyState()) {
     case ResidencyState::IN_MEMORY: {
         data->scan(output, offsetInChunk, length);
@@ -133,7 +137,6 @@ void ColumnChunk::scanCommittedUpdates(const Transaction* transaction, ColumnChu
     while (vectorIdx <= endVectorIdx) {
         const auto startRow = vectorIdx == startVectorIdx ? startRowInVector : 0;
         const auto endRow = vectorIdx == endVectorIdx ? endRowInVector : DEFAULT_VECTOR_CAPACITY;
-        // const auto numRowsInVector = endRow - startRow;
         const auto vectorInfo = updateInfo->getVectorInfo(transaction, vectorIdx);
         if (vectorInfo && vectorInfo->numRowsUpdated > 0) {
             if (vectorIdx != startVectorIdx && vectorIdx != endVectorIdx) {
@@ -239,7 +242,6 @@ std::pair<std::unique_ptr<ColumnChunk>, std::unique_ptr<ColumnChunk>> ColumnChun
     const Transaction* transaction) const {
     auto numUpdatedRows = getNumUpdatedRows(transaction);
     auto& mm = *transaction->getClientContext()->getMemoryManager();
-    // TODO(Guodong): Actually for row idx in a column chunk, UINT32 should be enough.
     auto updatedRows = std::make_unique<ColumnChunk>(mm, LogicalType::UINT64(), numUpdatedRows,
         false, ResidencyState::IN_MEMORY);
     auto updatedData = std::make_unique<ColumnChunk>(mm, getDataType(), numUpdatedRows, false,

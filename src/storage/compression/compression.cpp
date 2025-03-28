@@ -882,6 +882,17 @@ void ReadCompressedValuesFromPageToVector::operator()(const uint8_t* frame, Page
     common::ValueVector* resultVector, uint32_t posInVector, uint64_t numValuesToRead,
     const CompressionMetadata& metadata) {
     switch (metadata.compression) {
+    case CompressionType::DELTA: {
+        DeltaCompression<int64_t>().decompress(
+            frame,
+            pageCursor.elemPosInPage,
+            numValuesToRead,
+            resultVector->getData(),
+            metadata
+        );
+        return;
+    }
+        
     case CompressionType::CONSTANT:
         return constant.decompressFromPage(frame, pageCursor.elemPosInPage, resultVector->getData(),
             posInVector, numValuesToRead, metadata);
@@ -901,6 +912,13 @@ void ReadCompressedValuesFromPageToVector::operator()(const uint8_t* frame, Page
         default: {
             throw NotImplementedException("Float Compression is not implemented for type " +
                                           PhysicalTypeUtils::toString(physicalType));
+        }
+        case CompressionType::DELTA: {
+            DeltaCompression<int64_t>().decompress(frame + pageCursor.elemPosInPage,
+                0 /* startValueIdx */, numValuesToRead,
+                reinterpret_cast<uint8_t*>(resultVector->getData()), metadata);
+            pageCursor.elemPosInPage += numValuesToRead * sizeof(int64_t);
+            return;
         }
         }
     }
@@ -961,6 +979,17 @@ void ReadCompressedValuesFromPage::operator()(const uint8_t* frame, PageCursor& 
     uint8_t* result, uint32_t startPosInResult, uint64_t numValuesToRead,
     const CompressionMetadata& metadata) {
     switch (metadata.compression) {
+    case CompressionType::DELTA: {
+        DeltaCompression<int64_t>().decompress(
+                frame,
+                pageCursor.elemPosInPage,
+                numValuesToRead,
+                result,
+                metadata
+        );
+        return;
+    }
+        
     case CompressionType::CONSTANT:
         return constant.copyFromPage(frame, pageCursor.elemPosInPage, result, startPosInResult,
             numValuesToRead, metadata);
@@ -976,6 +1005,17 @@ void ReadCompressedValuesFromPage::operator()(const uint8_t* frame, PageCursor& 
         case PhysicalTypeID::FLOAT: {
             return FloatCompression<float>().decompressFromPage(frame, pageCursor.elemPosInPage,
                 result, startPosInResult, numValuesToRead, metadata);
+        }
+        case CompressionType::DELTA: {
+            DeltaCompression<int64_t>().decompress(
+                frame + pageCursor.elemPosInPage,
+                0 /* startValueIdx */,
+                numValuesToRead,
+                result + startPosInResult * sizeof(int64_t),
+                metadata
+            );
+            pageCursor.elemPosInPage += numValuesToRead * sizeof(int64_t);
+            return;
         }
         default: {
             throw NotImplementedException("Float Compression is not implemented for type " +
@@ -1041,6 +1081,18 @@ void WriteCompressedValuesToPage::operator()(uint8_t* frame, uint16_t posInFrame
     const uint8_t* data, offset_t dataOffset, offset_t numValues,
     const CompressionMetadata& metadata, const NullMask* nullMask) {
     switch (metadata.compression) {
+    case CompressionType::DELTA: {
+        DeltaCompression<int64_t>().setValuesFromUncompressed(
+            data,
+            dataOffset,
+            frame,
+            posInFrame,
+            numValues,
+            metadata,
+            nullMask
+        );
+        return;
+    }
     case CompressionType::CONSTANT:
         return constant.setValuesFromUncompressed(data, dataOffset, frame, posInFrame, numValues,
             metadata, nullMask);

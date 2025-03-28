@@ -1,4 +1,5 @@
 #include "storage/store/column_chunk_data.h"
+#include <iostream>
 
 #include <algorithm>
 #include <cstring>
@@ -34,7 +35,7 @@ using namespace kuzu::transaction;
 namespace kuzu {
 namespace storage {
 
-static std::shared_ptr<CompressionAlg> getCompression(const LogicalType& dataType,
+    std::shared_ptr<CompressionAlg> ColumnChunkData::getCompression(const LogicalType& dataType,
     bool enableCompression) {
     if (!enableCompression) {
         return std::make_shared<Uncompressed>(dataType);
@@ -44,7 +45,24 @@ static std::shared_ptr<CompressionAlg> getCompression(const LogicalType& dataTyp
         return std::make_shared<IntegerBitpacking<int128_t>>();
     }
     case PhysicalTypeID::INT64: {
-        return std::make_shared<IntegerBitpacking<int64_t>>();
+        // Cast buffer to vector of int64_t values
+        const int64_t* intValues = reinterpret_cast<const int64_t*>(buffer->getBuffer().data());
+        bool sorted = true;
+        for (uint64_t i = 1; i < numValues; ++i) {
+            if (intValues[i] < intValues[i - 1]) {
+                sorted = false;
+                break;
+        }
+    }
+
+    if (sorted) {
+        std::cout << "[DEBUG] Delta compression selected for sorted INT64\n";
+        return std::make_shared<DeltaCompression<int64_t>>();
+    }
+
+    return std::make_shared<IntegerBitpacking<int64_t>>();
+}
+
     }
     case PhysicalTypeID::INT32: {
         return std::make_shared<IntegerBitpacking<int32_t>>();
@@ -121,10 +139,31 @@ void ColumnChunkData::initializeBuffer(common::PhysicalTypeID physicalType, Memo
 }
 
 void ColumnChunkData::initializeFunction() {
-    const auto compression = getCompression(dataType, enableCompression);
+    std::shared_ptr<CompressionAlg> compression;
+
+    if (enableCompression && dataType.getPhysicalType() == PhysicalTypeID::INT64) {
+        const int64_t* intValues = reinterpret_cast<const int64_t*>(buffer->getBuffer().data());
+        bool sorted = true;
+        for (uint64_t i = 1; i < numValues; ++i) {
+            if (intValues[i] < intValues[i - 1]) {
+                sorted = false;
+                break;
+            }
+        }
+
+        if (sorted) {
+            compression = std::make_shared<DeltaCompression<int64_t>>();
+        } else {
+            compression = std::make_shared<IntegerBitpacking<int64_t>>();
+        }
+    } else {
+        compression = getCompression(dataType, enableCompression);
+    }
+
     getMetadataFunction = GetCompressionMetadata(compression, dataType);
     flushBufferFunction = initializeFlushBufferFunction(compression);
 }
+
 
 ColumnChunkData::flush_buffer_func_t ColumnChunkData::initializeFlushBufferFunction(
     std::shared_ptr<CompressionAlg> compression) const {
